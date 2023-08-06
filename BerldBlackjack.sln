@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.6.33815.320
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BerldBlackjack", "BerldBlackjack\BerldBlackjack.csproj", "{0E748547-74A7-4410-8D2E-0AF08D33F75E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BerldBlackjack.ConsoleApp", "BerldBlackjack.ConsoleApp\BerldBlackjack.ConsoleApp.csproj", "{7DF9BA1F-727C-43A3-8BF7-B8115DE4F09F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{0E748547-74A7-4410-8D2E-0AF08D33F75E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{0E748547-74A7-4410-8D2E-0AF08D33F75E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{0E748547-74A7-4410-8D2E-0AF08D33F75E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{0E748547-74A7-4410-8D2E-0AF08D33F75E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7DF9BA1F-727C-43A3-8BF7-B8115DE4F09F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7DF9BA1F-727C-43A3-8BF7-B8115DE4F09F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7DF9BA1F-727C-43A3-8BF7-B8115DE4F09F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7DF9BA1F-727C-43A3-8BF7-B8115DE4F09F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {EA817334-88A2-4A6E-B674-D62E6D6FB2F2}
+	EndGlobalSection
+EndGlobal
