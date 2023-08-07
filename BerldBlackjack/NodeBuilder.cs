@@ -73,7 +73,7 @@ namespace BerldBlackjack
                     existingNode.Ev = double.MinValue;
                 }
 
-                SetPlayerEv(playerNode, dealerNode, existingNodes);
+                SetPlayerNodeEv(playerNode, rootNode, dealerNode.Ranks.First(), existingNodes);
 
                 StringBuilder builder = new();
 
@@ -109,74 +109,81 @@ namespace BerldBlackjack
             return rootNode;
         }
 
-        private static double GetEv(int playerSum, int[] ranks, Node dealerNode, Node[] existingNodes)
+        private static double GetEv(Node playerNode, Node rootNode, int dealerRank, Node[] existingNodes)
         {
-            int dealerRank = dealerNode.Ranks.First();
-            ranks = ranks.OrderBy(c => c).ToArray();
+            Debug.Assert(rootNode.Children is not null);
 
-            string key = GetRanksKey(dealerRank, ranks);
-            double[] sumOdds;
+            int playerSum = playerNode.Sum;
+            int[] playerRanks = playerNode.Ranks.OrderBy(c => c).ToArray();
 
-            if (_dealerSumOdds.ContainsKey(key))
+            string currentKey = GetDealerSumOddsKey(playerRanks, dealerRank);
+
+            if (!_dealerSumOdds.ContainsKey(currentKey))
             {
-                sumOdds = _dealerSumOdds[key];
-            }
-            else
-            {
-                SetOdds(existingNodes, ranks);
+                SetOdds(existingNodes, playerRanks);
 
-                sumOdds = CountDealerSum(dealerNode, new double[7]);
-                double totalSumOdds = sumOdds.Sum();
-
-                for (int i = 0; i < sumOdds.Length; i++)
+                for (int rankIndex = 0; rankIndex < Rank.Amount; rankIndex++)
                 {
-                    sumOdds[i] /= totalSumOdds;
-                }
+                    Node dealerNode = rootNode.Children[rankIndex];
 
-                _dealerSumOdds.Add(key, sumOdds);
+                    double[] sumOdds = CountDealerSum(dealerNode, new double[7]);
+                    double totalSumOdds = sumOdds.Sum();
+
+                    for (int i = 0; i < sumOdds.Length; i++)
+                    {
+                        sumOdds[i] /= totalSumOdds;
+                    }
+
+                    string key = GetDealerSumOddsKey(playerRanks, dealerNode.Ranks.First());
+                    _dealerSumOdds.Add(key, sumOdds);
+                }
             }
 
-            double ev = GetEvFromResult(playerSum, ranks.Length, sumOdds);
+            double[] currentSumOdds = _dealerSumOdds[currentKey];
+            double ev = GetEvFromResult(playerSum, playerRanks.Length, currentSumOdds);
             return ev;
         }
 
-        private static void SetPlayerEv(Node node, Node dealerNode, Node[] existingNodes)
+        private static void SetPlayerNodeEv(Node playerNode, Node rootNode, int dealerRank, Node[] existingNodes)
         {
-            if (node.Ev != double.MinValue)
+            if (playerNode.Ev != double.MinValue)
             {
                 return;
             }
 
-            if (node.Children is null)
+            if (playerNode.Children is null)
             {
-                if (node.Kind == NodeKind.Stand)
+                if (playerNode.Kind == NodeKind.Stand)
                 {
-                    node.Ev = GetEv(node.Sum, node.Ranks, dealerNode, existingNodes);
+                    playerNode.Ev = GetEv(playerNode, rootNode, dealerRank, existingNodes);
                 }
-                else if (node.Kind == NodeKind.Bust)
+                else if (playerNode.Kind == NodeKind.Bust)
                 {
-                    node.Ev = -1;
+                    playerNode.Ev = -1;
+                }
+                else
+                {
+                    throw new InvalidOperationException("Internal error.");
                 }
             }
             else
             {
                 double hitEv = 0;
 
-                foreach (Node child in node.Children)
+                for (int i = 0; i < playerNode.Children.Length; i++)
                 {
-                    SetPlayerEv(child, dealerNode, existingNodes);
+                    Node child = playerNode.Children[i];
+                    SetPlayerNodeEv(child, rootNode, dealerRank, existingNodes);
 
-                    double childHitEv = child.Ev * child.Odds / node.Odds;
-
-                    if (!double.IsNaN(childHitEv))
-                    {
-                        hitEv += childHitEv;
-                    }
+                    int rank = Rank.ToRank(i);
+                    double childRatio = GetOdds(new int[] { rank }, playerNode.Ranks);
+                    double childHitEv = child.Ev * childRatio;
+                    hitEv += childHitEv;
                 }
 
-                node.HitEv = hitEv;
-                node.StandEv = GetEv(node.Sum, node.Ranks, dealerNode, existingNodes);
-                node.Ev = Math.Max(node.HitEv, node.StandEv);
+                playerNode.HitEv = hitEv;
+                playerNode.StandEv = GetEv(playerNode, rootNode, dealerRank, existingNodes);
+                playerNode.Ev = Math.Max(playerNode.HitEv, playerNode.StandEv);
             }
         }
 
@@ -184,8 +191,8 @@ namespace BerldBlackjack
 
         private static double GetEvFromResult(int playerSum, int rankAmount, double[] sumOdds)
         {
-            bool isPlayerBlackjack = playerSum == 21 && rankAmount == 2;
             double totalEv = 0;
+            bool isPlayerBlackjack = playerSum == 21 && rankAmount == 2;
 
             if (isPlayerBlackjack)
             {
@@ -198,20 +205,21 @@ namespace BerldBlackjack
             }
             else
             {
-                for (int i = 0; i < 7; i++)
-                {
-                    bool isDealerBlackjack = i == 7;
-                    bool isDealerBust = i == 0;
-                    int dealerSum = i + 16;
-                    double iSumOdds = sumOdds[i];
+                // Dealer bust
+                totalEv += sumOdds[0];
 
-                    if (isDealerBust || playerSum > dealerSum)
+                for (int i = 1; i < 7; i++)
+                {
+                    double sumOddEntry = sumOdds[i];
+                    int dealerSum = i + 16;
+
+                    if (playerSum > dealerSum)
                     {
-                        totalEv += iSumOdds;
+                        totalEv += sumOddEntry;
                     }
-                    else if (isDealerBlackjack || dealerSum > playerSum)
+                    else if (dealerSum > playerSum)
                     {
-                        totalEv -= iSumOdds;
+                        totalEv -= sumOddEntry;
                     }
                 }
             }
@@ -219,7 +227,7 @@ namespace BerldBlackjack
             return totalEv;
         }
 
-        private static string GetRanksKey(int dealerRank, int[] ranks)
+        private static string GetDealerSumOddsKey(int[] ranks, int dealerRank)
         {
             StringBuilder builder = new();
 
