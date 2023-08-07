@@ -8,26 +8,36 @@ namespace BerldBlackjack
 
         public NodeKind Kind { get; set; }
 
-        public int[] PlayerRanks { get; }
-        public int PlayerSum { get; }
+        public int[] Ranks { get; }
+        public int Sum { get; }
 
-        public int[] DealerRanks { get; }
-        public int DealerSum { get; }
+        public double Odds { get; set; }
 
         public double Ev { get; set; } = double.MinValue;
+        public double StandEv { get; set; } = double.MinValue;
+        public double HitEv { get; set; } = double.MinValue;
 
-        public (double ratio, Node child)[]? Children { get; set; } = null;
+        public Node[]? Children { get; set; } = null;
 
-
-        public Node(NodeKind kind, int[] playerRanks, int[] dealerRanks)
+        public Node(int[] playerRanks)
         {
-            Kind = kind;
-            PlayerRanks = playerRanks.OrderBy(c => c).ToArray();
-            DealerRanks = dealerRanks.OrderBy(c => c).ToArray();
-            Created++;
+            Ranks = playerRanks.OrderBy(c => c).ToArray();
+            Sum = DetermineSum(playerRanks);
 
-            PlayerSum = DetermineSum(playerRanks);
-            DealerSum = DetermineSum(dealerRanks);
+            if (Sum > 21)
+            {
+                Kind = NodeKind.Bust;
+            }
+            else if (Sum == 21)
+            {
+                Kind = NodeKind.Stand;
+            }
+            else
+            {
+                Kind = NodeKind.Branch;
+            }
+
+            Created++;
         }
 
         public static int DetermineSum(int[] ranks)
@@ -60,14 +70,7 @@ namespace BerldBlackjack
         {
             StringBuilder builder = new();
 
-            foreach (int rank in PlayerRanks)
-            {
-                builder.Append(Rank.ToShortString(rank));
-            }
-
-            builder.Append('-');
-
-            foreach (int rank in DealerRanks)
+            foreach (int rank in Ranks)
             {
                 builder.Append(Rank.ToShortString(rank));
             }

@@ -2,13 +2,8 @@
 {
     public enum NodeKind
     {
-        PlayerDecision,
+        Branch,
         Stand,
-        Hit,
-        Double,
-        DoubleStand,
-        DoubleBust,
-        Bust,
-        Split
+        Bust
     }
 }

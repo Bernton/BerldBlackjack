@@ -1,178 +1,351 @@
-﻿namespace BerldBlackjack
+﻿using System.Diagnostics;
+using System.Text;
+using System.Xml.Linq;
+
+namespace BerldBlackjack
 {
     public static class NodeBuilder
     {
-        public static List<BaseNode> Build()
+        public static Node Build()
         {
-            List<BaseNode> baseNodes = new();
+            Node rootNode = new(Array.Empty<int>());
 
-            for (int playerRankI1 = 0; playerRankI1 < Rank.Amount; playerRankI1++)
-            {
-                for (int playerRankI2 = playerRankI1; playerRankI2 < Rank.Amount; playerRankI2++)
-                {
-                    for (int dealerRankI = 0; dealerRankI < Rank.Amount; dealerRankI++)
-                    {
-                        int playerRank1 = Rank.ToRank(playerRankI1);
-                        int playerRank2 = Rank.ToRank(playerRankI2);
-                        int dealerRank = Rank.ToRank(dealerRankI);
+            Dictionary<string, Node> existingNodeMap = new();
+            Stack<Node> nodesToBuild = new();
 
-                        int[] allRanks = new int[] { playerRank1, playerRank2, dealerRank };
-                        int[] playerRanks = new int[] { playerRank1, playerRank2 };
-                        int[] dealerRanks = new int[] { dealerRank };
-
-                        double ratio = 1;
-                        int[] aliveRankAmounts = NodeUtility.GetAliveRankAmounts();
-
-                        foreach (int rank in allRanks)
-                        {
-                            int rankIndex = Rank.ToIndex(rank);
-                            int totalAliveRankAmount = aliveRankAmounts.Sum();
-                            int rankAmount = aliveRankAmounts[rankIndex];
-                            ratio = ratio * rankAmount / totalAliveRankAmount;
-                            aliveRankAmounts[rankIndex]--;
-                        }
-
-                        // Multiply by 2 to account for order
-                        if (playerRank1 != playerRank2)
-                        {
-                            ratio *= 2;
-                        }
-
-                        BaseNode baseNode = new(NodeKind.PlayerDecision, playerRanks, dealerRanks, ratio);
-                        CheckSetBustOrStand(baseNode);
-
-                        baseNodes.Add(baseNode);
-                    }
-                }
-            }
-
-            Dictionary<string, Node> builtNodes = new();
-            Stack<Node> nodesToBuild = new(baseNodes);
+            existingNodeMap.Add(rootNode.ToString(), rootNode);
+            nodesToBuild.Push(rootNode);
 
             while (nodesToBuild.Any())
             {
                 Node node = nodesToBuild.Pop();
 
-                (double ratio, Node)[]? children = BuildNode(node);
+                Node[] children = CreateHitChildren(node);
                 node.Children = children;
 
-                if (children is not null)
+                for (int i = 0; i < children.Length; i++)
                 {
-                    for (int i = 0; i < children.Length; i++)
-                    {
-                        (double ratio, Node child) = children[i];
-                        string childKey = child.ToString();
+                    Node child = children[i];
+                    string childKey = child.ToString();
 
-                        if (builtNodes.ContainsKey(childKey))
+                    if (existingNodeMap.ContainsKey(childKey))
+                    {
+                        Node existingNode = existingNodeMap[childKey];
+                        children[i] = existingNode;
+                    }
+                    else
+                    {
+                        if (child.Kind == NodeKind.Branch)
                         {
-                            Node existingNode = builtNodes[childKey];
-                            children[i] = (ratio, existingNode);
-                        }
-                        else
-                        {
-                            builtNodes.Add(childKey, child);
                             nodesToBuild.Push(child);
                         }
+
+                        existingNodeMap.Add(childKey, child);
                     }
                 }
             }
 
-            return baseNodes;
+            Node[] existingNodes = existingNodeMap.Values.ToArray();
+
+
+            Node[] startingPlayerNodes = existingNodes.Where(c => c.Ranks.Length == 2).ToArray();
+            Node[] startingDealerNodes = existingNodes.Where(c => c.Ranks.Length == 1).ToArray();
+
+            List<(Node playerNode, Node dealerNode)> startingSituations = new();
+
+            foreach (Node playerNode in startingPlayerNodes)
+            {
+                foreach (Node dealerNode in startingDealerNodes)
+                {
+                    startingSituations.Add((playerNode, dealerNode));
+                }
+            }
+
+            double totalEv = 0;
+            double totalOdds = 0;
+
+            foreach (var (playerNode, dealerNode) in startingSituations)
+            {
+                foreach (Node existingNode in existingNodes)
+                {
+                    existingNode.HitEv = double.MinValue;
+                    existingNode.StandEv = double.MinValue;
+                    existingNode.Ev = double.MinValue;
+                }
+
+                SetPlayerEv(playerNode, dealerNode, existingNodes);
+
+                StringBuilder builder = new();
+
+                foreach (int rank in playerNode.Ranks)
+                {
+                    builder.Append(Rank.ToShortString(rank));
+                }
+
+                builder.Append('-');
+                builder.Append(Rank.ToShortString(dealerNode.Ranks.First()));
+                builder.Append($": {playerNode.Ev,10:N5}");
+
+                double situationOdds = GetOdds(Enumerable.Concat(playerNode.Ranks, dealerNode.Ranks), null);
+
+                // Compensate odds for sorting
+                if (playerNode.Ranks[0] != playerNode.Ranks[1])
+                {
+                    situationOdds *= 2;
+                }
+
+                builder.Append($" {situationOdds * 100,10:N5}%");
+
+                totalEv += playerNode.Ev * situationOdds;
+                totalOdds += situationOdds;
+
+                Console.WriteLine(builder.ToString());
+            }
+
+            Console.WriteLine();
+            Console.WriteLine($"Total EV: {totalEv}");
+            Console.WriteLine($"Total Odds: {totalOdds}");
+
+            return rootNode;
         }
 
-        private static void CheckSetBustOrStand(Node node)
+        private static double GetEv(int playerSum, int[] ranks, Node dealerNode, Node[] existingNodes)
         {
-            if (node.Kind == NodeKind.PlayerDecision)
+            int dealerRank = dealerNode.Ranks.First();
+            ranks = ranks.OrderBy(c => c).ToArray();
+
+            string key = GetRanksKey(dealerRank, ranks);
+            double[] sumOdds;
+
+            if (_dealerSumOdds.ContainsKey(key))
             {
-                if (node.PlayerSum > 21)
+                sumOdds = _dealerSumOdds[key];
+            }
+            else
+            {
+                SetOdds(existingNodes, ranks);
+
+                sumOdds = CountDealerSum(dealerNode, new double[7]);
+                double totalSumOdds = sumOdds.Sum();
+
+                for (int i = 0; i < sumOdds.Length; i++)
                 {
-                    node.Kind = NodeKind.Bust;
+                    sumOdds[i] /= totalSumOdds;
                 }
 
-                if (node.PlayerSum == 21)
-                {
-                    node.Kind = NodeKind.Stand;
-                }
+                _dealerSumOdds.Add(key, sumOdds);
             }
 
-            if (node.Kind == NodeKind.DoubleStand)
-            {
-                if (node.PlayerSum > 21)
-                {
-                    node.Kind = NodeKind.DoubleBust;
-                }
-            }
+            double ev = GetEvFromResult(playerSum, ranks.Length, sumOdds);
+            return ev;
         }
 
-        private static (double ratio, Node)[]? BuildNode(Node node)
+        private static void SetPlayerEv(Node node, Node dealerNode, Node[] existingNodes)
         {
-            if (node.Kind == NodeKind.PlayerDecision)
+            if (node.Ev != double.MinValue)
             {
-                List<(double ratio, Node)> children = new();
-
-                Node hitChild = ConstructClone(node);
-                hitChild.Kind = NodeKind.Hit;
-                children.Add((1, hitChild));
-
-                bool isStandPossible = node.PlayerSum > 11;
-
-                if (isStandPossible)
-                {
-                    Node standChild = ConstructClone(node);
-                    standChild.Kind = NodeKind.Stand;
-                    children.Add((1, standChild));
-                }
-
-                bool isDoublePossible =
-                    node.PlayerRanks.Length == 2 &&
-                    !node.PlayerRanks.Any(c => c == Rank.Ace) &&
-                    node.PlayerSum <= 11 && node.PlayerSum >= 9;
-
-                if (isDoublePossible)
-                {
-                    Node doubleChild = ConstructClone(node);
-                    doubleChild.Kind = NodeKind.Double;
-                    children.Add((1, doubleChild));
-                }
-
-                return children.ToArray();
+                return;
             }
 
-            if (node.Kind == NodeKind.Hit || node.Kind == NodeKind.Double)
+            if (node.Children is null)
             {
-                List<(double ratio, Node)> hitChildren = new();
-                int[] aliveRankAmounts = NodeUtility.GetAliveRankAmounts(node);
-                int totalAliveRankAmount = aliveRankAmounts.Sum();
-
-                for (int i = 0; i < Rank.Amount; i++)
+                if (node.Kind == NodeKind.Stand)
                 {
-                    if (aliveRankAmounts[i] == 0)
+                    node.Ev = GetEv(node.Sum, node.Ranks, dealerNode, existingNodes);
+                }
+                else if (node.Kind == NodeKind.Bust)
+                {
+                    node.Ev = -1;
+                }
+            }
+            else
+            {
+                double hitEv = 0;
+
+                foreach (Node child in node.Children)
+                {
+                    SetPlayerEv(child, dealerNode, existingNodes);
+
+                    double childHitEv = child.Ev * child.Odds / node.Odds;
+
+                    if (!double.IsNaN(childHitEv))
                     {
-                        continue;
+                        hitEv += childHitEv;
                     }
-
-                    Node hitChild = CreatePlayerHitChild(node, Rank.ToRank(i));
-                    double ratio = aliveRankAmounts[i] / (double)totalAliveRankAmount;
-                    hitChild.Kind = node.Kind == NodeKind.Hit ? NodeKind.PlayerDecision : NodeKind.DoubleStand;
-                    CheckSetBustOrStand(hitChild);
-                    hitChildren.Add((ratio, hitChild));
                 }
 
-                return hitChildren.ToArray();
+                node.HitEv = hitEv;
+                node.StandEv = GetEv(node.Sum, node.Ranks, dealerNode, existingNodes);
+                node.Ev = Math.Max(node.HitEv, node.StandEv);
             }
-
-            return null;
         }
 
-        private static Node ConstructClone(Node node)
+        private static readonly Dictionary<string, double[]> _dealerSumOdds = new();
+
+        private static double GetEvFromResult(int playerSum, int rankAmount, double[] sumOdds)
         {
-            return new(node.Kind, node.PlayerRanks.ToArray(), node.DealerRanks.ToArray());
+            bool isPlayerBlackjack = playerSum == 21 && rankAmount == 2;
+            double totalEv = 0;
+
+            if (isPlayerBlackjack)
+            {
+                for (int i = 0; i < 6; i++)
+                {
+                    totalEv += sumOdds[i];
+                }
+
+                totalEv *= 1.5;
+            }
+            else
+            {
+                for (int i = 0; i < 7; i++)
+                {
+                    bool isDealerBlackjack = i == 7;
+                    bool isDealerBust = i == 0;
+                    int dealerSum = i + 16;
+                    double iSumOdds = sumOdds[i];
+
+                    if (isDealerBust || playerSum > dealerSum)
+                    {
+                        totalEv += iSumOdds;
+                    }
+                    else if (isDealerBlackjack || dealerSum > playerSum)
+                    {
+                        totalEv -= iSumOdds;
+                    }
+                }
+            }
+
+            return totalEv;
+        }
+
+        private static string GetRanksKey(int dealerRank, int[] ranks)
+        {
+            StringBuilder builder = new();
+
+            builder.Append(Rank.ToShortString(dealerRank));
+            builder.Append('-');
+
+            for (int i = 0; i < ranks.Length; i++)
+            {
+                builder.Append(Rank.ToShortString(ranks[i]));
+            }
+
+            return builder.ToString();
+        }
+
+        private static double GetOdds(IEnumerable<int> ranks, IEnumerable<int>? deadRanks)
+        {
+            const int DeckAmount = 8;
+
+            int[] rankAmounts = new int[Rank.Amount];
+            int totalRankAmount = 0;
+
+            for (int i = 0; i < Rank.Amount; i++)
+            {
+                int frequency = i == Rank.TenIndex ? 16 : 4;
+                int rankAmount = frequency * DeckAmount;
+                rankAmounts[i] = rankAmount;
+                totalRankAmount += rankAmount;
+            }
+
+            if (deadRanks is not null)
+            {
+                foreach (int deadRank in deadRanks)
+                {
+                    int rankIndex = Rank.ToIndex(deadRank);
+                    rankAmounts[rankIndex]--;
+
+                    if (rankAmounts[rankIndex] < 0)
+                    {
+                        return 0;
+                    }
+
+                    totalRankAmount--;
+                }
+            }
+
+            double odds = 1;
+
+            foreach (int rank in ranks)
+            {
+                int rankIndex = Rank.ToIndex(rank);
+                int rankAmount = rankAmounts[rankIndex];
+
+                odds *= rankAmount / (double)totalRankAmount;
+
+                rankAmounts[rankIndex]--;
+
+                if (rankAmounts[rankIndex] < 0)
+                {
+                    return 0;
+                }
+
+                totalRankAmount--;
+            }
+
+            return odds;
+        }
+
+        private static void SetOdds(IEnumerable<Node> allNodes, IEnumerable<int> deadPlayerRanks)
+        {
+            foreach (Node node in allNodes)
+            {
+                node.Odds = GetOdds(node.Ranks, deadPlayerRanks);
+            }
+        }
+
+        private static double[] CountDealerSum(Node node, double[] dealerSumOdds)
+        {
+            if (node.Sum > 16)
+            {
+                // Index of 0 stands for bust
+                int index = 0;
+
+                if (node.Sum == 21 && node.Ranks.Length == 2)
+                {
+                    // Dealer Blackjack
+                    index = 6;
+                }
+                else if (node.Sum <= 21)
+                {
+                    index = node.Sum - 16;
+                }
+
+                dealerSumOdds[index] += node.Odds;
+            }
+            else
+            {
+                Debug.Assert(node.Children is not null);
+
+                foreach (Node child in node.Children)
+                {
+                    CountDealerSum(child, dealerSumOdds);
+                }
+            }
+
+            return dealerSumOdds;
+        }
+
+        private static Node[] CreateHitChildren(Node node)
+        {
+            Node[] hitChildren = new Node[Rank.Amount];
+
+            for (int rankIndex = 0; rankIndex < Rank.Amount; rankIndex++)
+            {
+                int rank = Rank.ToRank(rankIndex);
+
+                Node hitChild = CreatePlayerHitChild(node, rank);
+                hitChildren[rankIndex] = hitChild;
+            }
+
+            return hitChildren;
         }
 
         private static Node CreatePlayerHitChild(Node node, int rank)
         {
-            int[] hitChildPlayerRanks = node.PlayerRanks.Append(rank).ToArray();
-            Node hitChild = new(NodeKind.PlayerDecision, hitChildPlayerRanks, node.DealerRanks.ToArray());
+            int[] hitChildPlayerRanks = node.Ranks.Append(rank).ToArray();
+            Node hitChild = new(hitChildPlayerRanks);
             return hitChild;
         }
     }
