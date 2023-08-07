@@ -2,7 +2,7 @@
 {
     internal static class NodeUtility
     {
-        internal static int DeckAmount { get; set; } = 1;
+        internal static int DeckAmount { get; set; } = 8;
         internal static bool IsBasicStrategy { get; set; } = false;
 
         internal static int[] GetAliveRankAmounts()

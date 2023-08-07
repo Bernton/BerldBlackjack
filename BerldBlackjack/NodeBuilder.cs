@@ -123,17 +123,17 @@
                     children.Add((1, standChild));
                 }
 
-                bool isDoublePossible =
-                    node.PlayerRanks.Length == 2 &&
-                    !node.PlayerRanks.Any(c => c == Rank.Ace) &&
-                    node.PlayerSum <= 11 && node.PlayerSum >= 9;
+                //bool isDoublePossible =
+                //    node.PlayerRanks.Length == 2 &&
+                //    !node.PlayerRanks.Any(c => c == Rank.Ace) &&
+                //    node.PlayerSum <= 11 && node.PlayerSum >= 9;
 
-                if (isDoublePossible)
-                {
-                    Node doubleChild = ConstructClone(node);
-                    doubleChild.Kind = NodeKind.Double;
-                    children.Add((1, doubleChild));
-                }
+                //if (isDoublePossible)
+                //{
+                //    Node doubleChild = ConstructClone(node);
+                //    doubleChild.Kind = NodeKind.Double;
+                //    children.Add((1, doubleChild));
+                //}
 
                 return children.ToArray();
             }
