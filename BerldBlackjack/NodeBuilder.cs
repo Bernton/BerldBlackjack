@@ -45,8 +45,9 @@ namespace BerldBlackjack
                 }
             }
 
-            Node[] existingNodes = existingNodeMap.Values.ToArray();
+            Debug.Assert(rootNode.Children is not null);
 
+            Node[] existingNodes = existingNodeMap.Values.ToArray();
 
             Node[] startingPlayerNodes = existingNodes.Where(c => c.Ranks.Length == 2).ToArray();
             Node[] startingDealerNodes = existingNodes.Where(c => c.Ranks.Length == 1).ToArray();
@@ -70,10 +71,72 @@ namespace BerldBlackjack
                 {
                     existingNode.HitEv = double.MinValue;
                     existingNode.StandEv = double.MinValue;
+                    existingNode.DoubleEv = double.MinValue;
+                    existingNode.SplitEv = double.MinValue;
                     existingNode.Ev = double.MinValue;
                 }
 
-                SetPlayerNodeEv(playerNode, rootNode, dealerNode.Ranks.First(), existingNodes);
+                SetPlayerNodeEv(playerNode, rootNode, dealerNode.Ranks.First(), existingNodes, null);
+
+                double playerHitEv = playerNode.HitEv;
+                double playerStandEv = playerNode.StandEv;
+                double playerDoubleEv = playerNode.DoubleEv;
+                double playerEv = playerNode.Ev;
+
+                bool isSplitPossible = playerNode.Ranks[0] == playerNode.Ranks[1];
+                double playerSplitEv = double.MinValue;
+
+                if (isSplitPossible)
+                {
+                    foreach (Node existingNode in existingNodes)
+                    {
+                        existingNode.HitEv = double.MinValue;
+                        existingNode.StandEv = double.MinValue;
+                        existingNode.DoubleEv = double.MinValue;
+                        existingNode.SplitEv = double.MinValue;
+                        existingNode.Ev = double.MinValue;
+                    }
+
+                    int splitRank = playerNode.Ranks[0];
+                    int splitRankIndex = Rank.ToIndex(splitRank);
+
+                    Node splitNode = rootNode.Children[splitRankIndex];
+
+                    IEnumerable<int> deadRanks = new int[] { splitRank };
+
+                    SetPlayerNodeEv(splitNode, rootNode, dealerNode.Ranks.First(), existingNodes, deadRanks);
+
+                    double firstSplitEv = splitNode.Ev;
+
+                    // Not allowed to hit further
+                    if (splitRank == Rank.Ace)
+                    {
+                        Debug.Assert(splitNode.Children is not null);
+
+                        double aceSplitEv = 0;
+
+                        for (int rankIndex = 0; rankIndex < Rank.Amount; rankIndex++)
+                        {
+                            Node splitNodeChild = splitNode.Children[rankIndex];
+                            IEnumerable<int> allDeadRanks = Enumerable.Concat(splitNode.Ranks, deadRanks);
+
+                            int rank = Rank.ToRank(rankIndex);
+                            double childRatio = GetOdds(new int[] { rank }, allDeadRanks);
+
+                            aceSplitEv += splitNodeChild.StandEv * childRatio;
+                        }
+
+                        firstSplitEv = aceSplitEv;
+                    }
+
+                    // Approx
+                    playerSplitEv = firstSplitEv * 2;
+
+                    if (playerSplitEv > playerEv)
+                    {
+                        playerEv = playerSplitEv;
+                    }
+                }
 
                 StringBuilder builder = new();
 
@@ -84,7 +147,7 @@ namespace BerldBlackjack
 
                 builder.Append('-');
                 builder.Append(Rank.ToShortString(dealerNode.Ranks.First()));
-                builder.Append($": {playerNode.Ev,10:N5}");
+                builder.Append($": {playerEv,10:N5}");
 
                 double situationOdds = GetOdds(Enumerable.Concat(playerNode.Ranks, dealerNode.Ranks), null);
 
@@ -96,7 +159,32 @@ namespace BerldBlackjack
 
                 builder.Append($" {situationOdds * 100,10:N5}%");
 
-                totalEv += playerNode.Ev * situationOdds;
+                string decision;
+
+                if (playerHitEv == playerEv)
+                {
+                    decision = "Hit";
+                }
+                else if (playerStandEv == playerEv)
+                {
+                    decision = "Stand";
+                }
+                else if (playerDoubleEv == playerEv)
+                {
+                    decision = "Double";
+                }
+                else if (playerSplitEv == playerEv)
+                {
+                    decision = "Split";
+                }
+                else
+                {
+                    decision = "Blackjack";
+                }
+
+                builder.Append($" -> {decision}");
+
+                totalEv += playerEv * situationOdds;
                 totalOdds += situationOdds;
 
                 Console.WriteLine(builder.ToString());
@@ -109,18 +197,23 @@ namespace BerldBlackjack
             return rootNode;
         }
 
-        private static double GetEv(Node playerNode, Node rootNode, int dealerRank, Node[] existingNodes)
+        private static double GetEv(Node playerNode, Node rootNode, int dealerRank, Node[] existingNodes, IEnumerable<int>? deadRanks, double multiplier)
         {
             Debug.Assert(rootNode.Children is not null);
 
             int playerSum = playerNode.Sum;
             int[] playerRanks = playerNode.Ranks.OrderBy(c => c).ToArray();
 
-            string currentKey = GetDealerSumOddsKey(playerRanks, dealerRank);
+            if (deadRanks is not null)
+            {
+                deadRanks = deadRanks.OrderBy(c => c);
+            }
+
+            string currentKey = GetDealerSumOddsKey(playerRanks, dealerRank, deadRanks);
 
             if (!_dealerSumOdds.ContainsKey(currentKey))
             {
-                SetOdds(existingNodes, playerRanks);
+                SetOdds(existingNodes, playerRanks, deadRanks);
 
                 for (int rankIndex = 0; rankIndex < Rank.Amount; rankIndex++)
                 {
@@ -134,17 +227,17 @@ namespace BerldBlackjack
                         sumOdds[i] /= totalSumOdds;
                     }
 
-                    string key = GetDealerSumOddsKey(playerRanks, dealerNode.Ranks.First());
+                    string key = GetDealerSumOddsKey(playerRanks, dealerNode.Ranks.First(), deadRanks);
                     _dealerSumOdds.Add(key, sumOdds);
                 }
             }
 
             double[] currentSumOdds = _dealerSumOdds[currentKey];
-            double ev = GetEvFromResult(playerSum, playerRanks.Length, currentSumOdds);
+            double ev = GetEvFromResult(playerSum, playerRanks.Length, currentSumOdds, multiplier);
             return ev;
         }
 
-        private static void SetPlayerNodeEv(Node playerNode, Node rootNode, int dealerRank, Node[] existingNodes)
+        private static void SetPlayerNodeEv(Node playerNode, Node rootNode, int dealerRank, Node[] existingNodes, IEnumerable<int>? deadRanks)
         {
             if (playerNode.Ev != double.MinValue)
             {
@@ -155,7 +248,7 @@ namespace BerldBlackjack
             {
                 if (playerNode.Kind == NodeKind.Stand)
                 {
-                    playerNode.Ev = GetEv(playerNode, rootNode, dealerRank, existingNodes);
+                    playerNode.Ev = GetEv(playerNode, rootNode, dealerRank, existingNodes, deadRanks, 1);
                 }
                 else if (playerNode.Kind == NodeKind.Bust)
                 {
@@ -173,23 +266,60 @@ namespace BerldBlackjack
                 for (int i = 0; i < playerNode.Children.Length; i++)
                 {
                     Node child = playerNode.Children[i];
-                    SetPlayerNodeEv(child, rootNode, dealerRank, existingNodes);
+                    SetPlayerNodeEv(child, rootNode, dealerRank, existingNodes, deadRanks);
+
+                    IEnumerable<int> allDeadRanks = deadRanks is null ? playerNode.Ranks : Enumerable.Concat(playerNode.Ranks, deadRanks);
 
                     int rank = Rank.ToRank(i);
-                    double childRatio = GetOdds(new int[] { rank }, playerNode.Ranks);
+                    double childRatio = GetOdds(new int[] { rank }, allDeadRanks);
                     double childHitEv = child.Ev * childRatio;
                     hitEv += childHitEv;
                 }
 
                 playerNode.HitEv = hitEv;
-                playerNode.StandEv = GetEv(playerNode, rootNode, dealerRank, existingNodes);
+                playerNode.StandEv = GetEv(playerNode, rootNode, dealerRank, existingNodes, deadRanks, 1);
                 playerNode.Ev = Math.Max(playerNode.HitEv, playerNode.StandEv);
+
+                bool isDoublePossible = playerNode.Ranks.Length == 2 && playerNode.Sum != 21;
+
+                if (isDoublePossible)
+                {
+                    double doubleEv = 0;
+
+                    for (int i = 0; i < playerNode.Children.Length; i++)
+                    {
+                        Node child = playerNode.Children[i];
+                        double childDoubleEv = GetChildDoubleEv(child, rootNode, dealerRank, existingNodes, deadRanks);
+
+                        int rank = Rank.ToRank(i);
+                        double childRatio = GetOdds(new int[] { rank }, playerNode.Ranks);
+                        double childHitEv = childDoubleEv * childRatio;
+                        doubleEv += childHitEv;
+                    }
+
+                    playerNode.DoubleEv = doubleEv;
+
+                    if (playerNode.DoubleEv > playerNode.Ev)
+                    {
+                        playerNode.Ev = playerNode.DoubleEv;
+                    }
+                }
             }
+        }
+
+        private static double GetChildDoubleEv(Node playerNode, Node rootNode, int dealerRank, Node[] existingNodes, IEnumerable<int>? deadRanks)
+        {
+            if (playerNode.Kind == NodeKind.Bust)
+            {
+                return -2;
+            }
+
+            return GetEv(playerNode, rootNode, dealerRank, existingNodes, deadRanks, 2);
         }
 
         private static readonly Dictionary<string, double[]> _dealerSumOdds = new();
 
-        private static double GetEvFromResult(int playerSum, int rankAmount, double[] sumOdds)
+        private static double GetEvFromResult(int playerSum, int rankAmount, double[] sumOdds, double multiplier)
         {
             double totalEv = 0;
             bool isPlayerBlackjack = playerSum == 21 && rankAmount == 2;
@@ -198,7 +328,7 @@ namespace BerldBlackjack
             {
                 for (int i = 0; i < 6; i++)
                 {
-                    totalEv += sumOdds[i];
+                    totalEv += sumOdds[i] * multiplier;
                 }
 
                 totalEv *= 1.5;
@@ -206,7 +336,7 @@ namespace BerldBlackjack
             else
             {
                 // Dealer bust
-                totalEv += sumOdds[0];
+                totalEv += sumOdds[0] * multiplier;
 
                 for (int i = 1; i < 7; i++)
                 {
@@ -215,11 +345,11 @@ namespace BerldBlackjack
 
                     if (playerSum > dealerSum)
                     {
-                        totalEv += sumOddEntry;
+                        totalEv += sumOddEntry * multiplier;
                     }
                     else if (dealerSum > playerSum)
                     {
-                        totalEv -= sumOddEntry;
+                        totalEv -= sumOddEntry * multiplier;
                     }
                 }
             }
@@ -227,16 +357,27 @@ namespace BerldBlackjack
             return totalEv;
         }
 
-        private static string GetDealerSumOddsKey(int[] ranks, int dealerRank)
+        private static string GetDealerSumOddsKey(int[] ranks, int dealerRank, IEnumerable<int>? deadRanks)
         {
             StringBuilder builder = new();
 
             builder.Append(Rank.ToShortString(dealerRank));
             builder.Append('-');
 
-            for (int i = 0; i < ranks.Length; i++)
+            IEnumerable<int> allDeadRanks;
+
+            if (deadRanks is not null)
             {
-                builder.Append(Rank.ToShortString(ranks[i]));
+                allDeadRanks = Enumerable.Concat(ranks, deadRanks).OrderBy(c => c);
+            }
+            else
+            {
+                allDeadRanks = ranks;
+            }
+
+            foreach (int deadRank in allDeadRanks)
+            {
+                builder.Append(Rank.ToShortString(deadRank));
             }
 
             return builder.ToString();
@@ -295,11 +436,15 @@ namespace BerldBlackjack
             return odds;
         }
 
-        private static void SetOdds(IEnumerable<Node> allNodes, IEnumerable<int> deadPlayerRanks)
+        private static void SetOdds(IEnumerable<Node> allNodes, IEnumerable<int> deadPlayerRanks, IEnumerable<int>? otherDeadCards)
         {
+            IEnumerable<int> deadCards = otherDeadCards is null ?
+                deadPlayerRanks :
+                Enumerable.Concat(deadPlayerRanks, otherDeadCards).OrderBy(c => c);
+
             foreach (Node node in allNodes)
             {
-                node.Odds = GetOdds(node.Ranks, deadPlayerRanks);
+                node.Odds = GetOdds(node.Ranks, deadCards);
             }
         }
 

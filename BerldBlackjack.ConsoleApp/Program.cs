@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using BerldBlackjack.Split;
+using System.Diagnostics;
 
 namespace BerldBlackjack.ConsoleApp
 {
@@ -6,7 +7,7 @@ namespace BerldBlackjack.ConsoleApp
     {
         private static void Main()
         {
-            Node rootNode = NodeBuilder.Build();
+            SplitNodeBuilder.Build(2);
         }
     }
 }

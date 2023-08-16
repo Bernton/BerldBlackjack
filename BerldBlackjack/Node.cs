@@ -15,6 +15,8 @@ namespace BerldBlackjack
 
         public double Ev { get; set; } = double.MinValue;
         public double StandEv { get; set; } = double.MinValue;
+        public double DoubleEv { get; set; } = double.MinValue;
+        public double SplitEv { get; set; } = double.MinValue;
         public double HitEv { get; set; } = double.MinValue;
 
         public Node[]? Children { get; set; } = null;
