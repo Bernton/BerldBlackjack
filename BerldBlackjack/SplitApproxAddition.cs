@@ -39,12 +39,11 @@ namespace BerldBlackjack
                         splitRankNodeRatios.Add((ratio, splitRankNode));
                     }
 
-                    double evSum = splitRankNodeRatios.Sum(c => c.ratio * c.node.Ev);
-
-                    if (splitRank == Rank.Ace)
-                    {
-                        evSum = splitRankNodeRatios.Sum(c => FindEquivalentEv(c.node, baseNode, baseNodes, c.ratio));
-                    }
+                    // A two-card 21 after a split (T+A) is not a blackjack, and split aces receive exactly one card
+                    double evSum = splitRankNodeRatios.Sum(c =>
+                        splitRank == Rank.Ace || c.node.Children is null ?
+                        FindEquivalentEv(c.node, baseNode, baseNodes, c.ratio) :
+                        c.ratio * c.node.Ev);
 
                     double ratioSum = splitRankNodeRatios.Sum(c => c.ratio);
                     double averageEv = evSum / ratioSum;
@@ -86,27 +85,8 @@ namespace BerldBlackjack
             }
             else
             {
-                Node splitRankNodeHit = splitRankNode.Children.First(c => c.child.Kind == NodeKind.Hit).child;
-
-                Debug.Assert(splitRankNodeHit.Children is not null);
-
-                IEnumerable<(double ratio, Node child)> standChildren = splitRankNodeHit.Children.Select(c =>
-                {
-                    if (c.child.Children is null)
-                    {
-                        return c;
-                    }
-                    else
-                    {
-                        (double _, Node standChild) = c.child.Children.First(c => c.child.Kind == NodeKind.Stand);
-                        return (c.ratio, standChild);
-                    }
-                });
-
-                double ev = standChildren.Sum(c => c.ratio * c.child.Ev);
-
-                //Node doubleChild = GetDoubleChild(splitRankNode);
-                //similarChildEv = doubleChild.Ev / 2;
+                (double _, Node standChild) = splitRankNode.Children.First(c => c.child.Kind == NodeKind.Stand);
+                double ev = standChild.Ev;
 
                 similarChildEv = ev;
             }
