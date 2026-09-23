@@ -1,6 +1,4 @@
-﻿using System.Text;
-
-namespace BerldBlackjack
+﻿namespace BerldBlackjack
 {
     public class NodeEvaluator
     {
@@ -16,7 +14,7 @@ namespace BerldBlackjack
             }
         }
 
-        private static double EvaluateNode(Node node)
+        internal static double EvaluateNode(Node node)
         {
             if (node.Ev != double.MinValue)
             {
@@ -83,7 +81,7 @@ namespace BerldBlackjack
 
         private static double EvaluateDealerResult(Node node)
         {
-            string memoizationKey = GetMemoizationKey(node);
+            string memoizationKey = node.GetStateKey();
 
             if (_dealerResultMemoization.ContainsKey(memoizationKey))
             {
@@ -92,7 +90,7 @@ namespace BerldBlackjack
 
             if (node.DealerRanks.Length >= 2)
             {
-                bool playerHasBlackjack = node.PlayerSum == 21 && node.PlayerRanks.Length == 2;
+                bool playerHasBlackjack = node.IsBlackjack;
                 bool dealerHasBlackjack = node.DealerSum == 21 && node.DealerRanks.Length == 2;
 
                 if (playerHasBlackjack)
@@ -151,32 +149,13 @@ namespace BerldBlackjack
         private static Node CreateDealerHitChild(Node node, int rank)
         {
             int[] hitChildDealerRanks = node.DealerRanks.Append(rank).ToArray();
-            Node hitChild = new(node.Kind, node.PlayerRanks.ToArray(), hitChildDealerRanks);
+            Node hitChild = new(node.Kind, node.PlayerRanks.ToArray(), hitChildDealerRanks, node.SplitRank, node.RemovedRanks);
             return hitChild;
         }
 
         private static double EvFromDealerResult(int playerSum, int dealerSum)
         {
             return Math.Sign(playerSum - dealerSum);
-        }
-
-        private static string GetMemoizationKey(Node node)
-        {
-            StringBuilder builder = new();
-
-            foreach (int rank in node.PlayerRanks.OrderBy(c => c))
-            {
-                builder.Append(Rank.ToShortString(rank));
-            }
-
-            builder.Append('-');
-
-            foreach (int rank in node.DealerRanks.OrderBy(c => c))
-            {
-                builder.Append(Rank.ToShortString(rank));
-            }
-
-            return builder.ToString();
         }
     }
 }

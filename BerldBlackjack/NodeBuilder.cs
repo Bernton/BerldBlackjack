@@ -46,8 +46,14 @@
                 }
             }
 
+            BuildTree(baseNodes);
+            return baseNodes;
+        }
+
+        internal static void BuildTree(IEnumerable<Node> rootNodes)
+        {
             Dictionary<string, Node> builtNodes = new();
-            Stack<Node> nodesToBuild = new(baseNodes);
+            Stack<Node> nodesToBuild = new(rootNodes);
 
             while (nodesToBuild.Any())
             {
@@ -76,14 +82,18 @@
                     }
                 }
             }
-
-            return baseNodes;
         }
 
-        private static void CheckSetBustOrStand(Node node)
+        internal static void CheckSetBustOrStand(Node node)
         {
             if (node.Kind == NodeKind.PlayerDecision)
             {
+                // Split aces receive exactly one card
+                if (node.SplitRank == Rank.Ace && node.PlayerRanks.Length == 2)
+                {
+                    node.Kind = NodeKind.Stand;
+                }
+
                 if (node.PlayerSum > 21)
                 {
                     node.Kind = NodeKind.Bust;
@@ -123,17 +133,17 @@
                     children.Add((1, standChild));
                 }
 
-                //bool isDoublePossible =
-                //    node.PlayerRanks.Length == 2 &&
-                //    !node.PlayerRanks.Any(c => c == Rank.Ace) &&
-                //    node.PlayerSum <= 11 && node.PlayerSum >= 9;
+                bool isDoublePossible =
+                    node.PlayerRanks.Length == 2 &&
+                    (!node.IsSplitHand || Rules.IsDoubleAfterSplitAllowed) &&
+                    (Rules.IsDoubleAnyTwoAllowed || (node.PlayerSum <= 11 && node.PlayerSum >= 9));
 
-                //if (isDoublePossible)
-                //{
-                //    Node doubleChild = ConstructClone(node);
-                //    doubleChild.Kind = NodeKind.Double;
-                //    children.Add((1, doubleChild));
-                //}
+                if (isDoublePossible)
+                {
+                    Node doubleChild = ConstructClone(node);
+                    doubleChild.Kind = NodeKind.Double;
+                    children.Add((1, doubleChild));
+                }
 
                 return children.ToArray();
             }
@@ -166,13 +176,13 @@
 
         private static Node ConstructClone(Node node)
         {
-            return new(node.Kind, node.PlayerRanks.ToArray(), node.DealerRanks.ToArray());
+            return new(node.Kind, node.PlayerRanks.ToArray(), node.DealerRanks.ToArray(), node.SplitRank, node.RemovedRanks);
         }
 
         private static Node CreatePlayerHitChild(Node node, int rank)
         {
             int[] hitChildPlayerRanks = node.PlayerRanks.Append(rank).ToArray();
-            Node hitChild = new(NodeKind.PlayerDecision, hitChildPlayerRanks, node.DealerRanks.ToArray());
+            Node hitChild = new(NodeKind.PlayerDecision, hitChildPlayerRanks, node.DealerRanks.ToArray(), node.SplitRank, node.RemovedRanks);
             return hitChild;
         }
     }

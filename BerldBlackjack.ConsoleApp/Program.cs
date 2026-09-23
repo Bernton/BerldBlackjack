@@ -16,7 +16,7 @@ namespace BerldBlackjack.ConsoleApp
 
             NodeEvaluator.Evaluate(baseNodes);
 
-            //SplitApproxAddition.Add(baseNodes);
+            SplitEvaluator.Add(baseNodes);
 
             Console.WriteLine();
 

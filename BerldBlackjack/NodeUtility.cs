@@ -2,7 +2,6 @@
 {
     internal static class NodeUtility
     {
-        internal static int DeckAmount { get; set; } = 8;
         internal static bool IsBasicStrategy { get; set; } = false;
 
         internal static int[] GetAliveRankAmounts()
@@ -11,7 +10,7 @@
 
             for (int i = 0; i < Rank.Amount; i++)
             {
-                aliveRankAmounts[i] = Deck.GetFrequencyFromIndex(i) * DeckAmount;
+                aliveRankAmounts[i] = Deck.GetFrequencyFromIndex(i) * Rules.DeckAmount;
             }
 
             return aliveRankAmounts;
@@ -28,7 +27,7 @@
             }
             else
             {
-                allRanks = Enumerable.Concat(node.PlayerRanks, node.DealerRanks).ToArray();
+                allRanks = node.PlayerRanks.Concat(node.DealerRanks).Concat(node.RemovedRanks).ToArray();
             }
 
             foreach (int rank in allRanks)
